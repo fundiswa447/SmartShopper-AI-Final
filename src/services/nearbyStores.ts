@@ -122,12 +122,7 @@ async function getNominatimShops(latitude: number, longitude: number): Promise<S
   }));
 }
 
-export async function findNearbyStores(latitude: number, longitude: number): Promise<NearbyStore[]> {
-  let elements = await getOsmShops(latitude, longitude);
-  if (!elements.length) {
-    elements = await getNominatimShops(latitude, longitude);
-  }
-
+function normalizeStores(elements: ShopElement[], latitude: number, longitude: number): NearbyStore[] {
   return elements
     .map((place) => {
       const storeLatitude = place.lat ?? place.center?.lat;
@@ -162,4 +157,12 @@ export async function findNearbyStores(latitude: number, longitude: number): Pro
     ) === index)
     .sort((first, second) => first.distanceKm - second.distanceKm)
     .slice(0, 80);
+}
+
+export async function findNearbyStores(latitude: number, longitude: number): Promise<NearbyStore[]> {
+  const osmStores = normalizeStores(await getOsmShops(latitude, longitude), latitude, longitude);
+  if (osmStores.length) return osmStores;
+
+  const geocodedShops = await getNominatimShops(latitude, longitude);
+  return normalizeStores(geocodedShops, latitude, longitude);
 }

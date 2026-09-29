@@ -28,6 +28,60 @@ const tileUrls: Record<MapStyle, string> = {
   satellite: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
 };
 
+const nearbyStoresCacheTtlMs = 7 * 24 * 60 * 60 * 1000;
+
+function getNearbyStoresCacheKey(location: [number, number]): string {
+  return `smartshopper_nearby_stores_${location[0].toFixed(2)}_${location[1].toFixed(2)}`;
+}
+
+function distanceBetweenKm(
+  latitudeA: number,
+  longitudeA: number,
+  latitudeB: number,
+  longitudeB: number
+): number {
+  const radians = (degrees: number) => (degrees * Math.PI) / 180;
+  const latitudeDelta = radians(latitudeB - latitudeA);
+  const longitudeDelta = radians(longitudeB - longitudeA);
+  const arc =
+    Math.sin(latitudeDelta / 2) ** 2 +
+    Math.cos(radians(latitudeA)) *
+      Math.cos(radians(latitudeB)) *
+      Math.sin(longitudeDelta / 2) ** 2;
+
+  return 6371 * 2 * Math.atan2(Math.sqrt(arc), Math.sqrt(1 - arc));
+}
+
+function readCachedNearbyStores(location: [number, number]): NearbyStore[] {
+  try {
+    const cached = JSON.parse(localStorage.getItem(getNearbyStoresCacheKey(location)) || 'null') as {
+      savedAt?: number;
+      stores?: NearbyStore[];
+    } | null;
+    if (
+      !cached ||
+      !Number.isFinite(cached.savedAt) ||
+      Date.now() - Number(cached.savedAt) > nearbyStoresCacheTtlMs ||
+      !Array.isArray(cached.stores)
+    ) return [];
+
+    return cached.stores
+      .filter((store) =>
+        Boolean(store) &&
+        typeof store.id === 'string' &&
+        typeof store.name === 'string' &&
+        Number.isFinite(store.latitude) &&
+        Number.isFinite(store.longitude)
+      )
+      .map((store) => ({
+        ...store,
+        distanceKm: distanceBetweenKm(location[0], location[1], store.latitude, store.longitude),
+      }));
+  } catch {
+    return [];
+  }
+}
+
 export function NearbyStoresMap({ profile, onLocationResolved, autoLocate = false }: NearbyStoresMapProps) {
   const mapElement = useRef<HTMLDivElement>(null);
   const map = useRef<L.Map | null>(null);
@@ -85,14 +139,34 @@ export function NearbyStoresMap({ profile, onLocationResolved, autoLocate = fals
         if (!response.ok) throw new Error('Nearby stores are temporarily unavailable.');
         const result = await response.json() as { stores: NearbyStore[] };
         if (!active) return;
-        setStores(result.stores);
-        setMessage(result.stores.length
-          ? locationSource === 'live'
+        if (Array.isArray(result.stores) && result.stores.length) {
+          setStores(result.stores);
+          try {
+            localStorage.setItem(getNearbyStoresCacheKey(location), JSON.stringify({
+              savedAt: Date.now(),
+              stores: result.stores,
+            }));
+          } catch {
+            // Keep live results available when browser storage is disabled or full.
+          }
+          setMessage(locationSource === 'live'
             ? 'Nearby stores around your live location.'
-            : `Nearby stores around ${profile.location || 'your saved location'}`
-          : 'No nearby shops found in the current search area.');
+            : `Nearby stores around ${profile.location || 'your saved location'}`);
+        } else {
+          const cachedStores = readCachedNearbyStores(location);
+          setStores(cachedStores);
+          setMessage(cachedStores.length
+            ? 'Showing recently saved nearby shops while live results are unavailable.'
+            : 'Live shop data is unavailable. Search nearby shops on Google Maps.');
+        }
       } catch (error) {
-        if (active) setMessage(error instanceof Error ? error.message : 'Nearby stores could not be loaded.');
+        if (active) {
+          const cachedStores = readCachedNearbyStores(location);
+          setStores(cachedStores);
+          setMessage(cachedStores.length
+            ? 'Showing recently saved nearby shops while live results are unavailable.'
+            : error instanceof Error ? error.message : 'Nearby stores could not be loaded.');
+        }
       } finally {
         if (active) setLoading(false);
       }
@@ -214,7 +288,19 @@ export function NearbyStoresMap({ profile, onLocationResolved, autoLocate = fals
           )) : (
             <div className="flex h-full min-h-40 flex-col items-center justify-center p-6 text-center text-sm text-gray-500">
               <MapPin className="mb-2 h-6 w-6 text-gray-300" />
-              {loading ? 'Finding nearby stores...' : 'Add a location in Profile to show nearby stores.'}
+              {loading ? 'Finding nearby stores...' : location ? (
+                <>
+                  <span>{message}</span>
+                  <a
+                    href={`https://www.google.com/maps/search/shops/@${location[0]},${location[1]},14z`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="mt-2 font-semibold text-emerald-700 underline"
+                  >
+                    Open nearby shops in Google Maps
+                  </a>
+                </>
+              ) : 'Add a location in Profile to show nearby stores.'}
             </div>
           )}
         </div>
