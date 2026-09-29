@@ -326,18 +326,55 @@ function slugify(value: string): string {
 }
 
 function makeProductImageUrl(
-  productName: string,
   category: string,
-  subcategory: string,
   index: number
 ): string {
-  const tags = encodeURIComponent(
-    `${productName},${subcategory},${category}`
-  );
+  const imageSets: Record<string, string[]> = {
+    Groceries: [
+      'photo-1542838132-92c53300491e',
+      'photo-1547592180-85f173990554',
+      'photo-1540189549336-e6e99c3679fe',
+    ],
+    Footwear: [
+      'photo-1542291026-7eec264c27ff',
+      'photo-1549298916-b41d501d3772',
+      'photo-1495555961986-6d4c1ecb7be3',
+    ],
+    Clothing: [
+      'photo-1483985988355-763728e1935b',
+      'photo-1434389677669-e08b4cac3105',
+      'photo-1490481651871-ab68de25d43d',
+    ],
+    Tech: [
+      'photo-1517336714731-489689fd1ca8',
+      'photo-1519389950473-47ba0277781c',
+      'photo-1496181133206-80ce9b88a853',
+    ],
+    Electronics: [
+      'photo-1498049794561-7780e7231661',
+      'photo-1511707171634-5f897ff02aa9',
+      'photo-1503602642458-232111445657',
+    ],
+    Essentials: [
+      'photo-1602143407151-7111542de6e8',
+      'photo-1608248543803-ba4f8c70ae0b',
+      'photo-1608571423902-eed4a5ad8108',
+    ],
+    Snacks: [
+      'photo-1621939514649-280e2aa02771',
+      'photo-1566478989037-eec170784d0b',
+      'photo-1599490659213-e2b9527bd087',
+    ],
+    Cosmetics: [
+      'photo-1596462502278-27bfdc403348',
+      'photo-1601049541289-9b1b7bbbfe19',
+      'photo-1611930022073-b7a4ba5fcccd',
+    ],
+  };
+  const images = imageSets[category] || imageSets.Essentials;
+  const imageId = images[index % images.length];
 
-  // LoremFlickr returns a photographic image based on the product/category
-  // keywords. The lock value makes the URL stable for each generated item.
-  return `https://loremflickr.com/600/600/${tags}?lock=${index + 1}`;
+  return `https://images.unsplash.com/${imageId}?auto=format&fit=crop&w=600&h=600&q=80`;
 }
 
 function makePrice(
@@ -455,9 +492,7 @@ function generateCatalogueProducts(
       // Product image — generated from the actual product name so every
       // generated catalogue item has its own relevant image URL.
       imageUrl: makeProductImageUrl(
-        productName,
         template.category,
-        template.subcategory,
         i
       ),
 

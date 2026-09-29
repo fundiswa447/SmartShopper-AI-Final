@@ -732,63 +732,110 @@ If you did not request a password reset, you can safely ignore this email.
     }
 
     try {
-      const latitudeOffset = 0.063;
-      const longitudeOffset = 0.063 / Math.max(0.2, Math.cos((latitude * Math.PI) / 180));
-      const viewbox = [
-        longitude - longitudeOffset,
-        latitude + latitudeOffset,
-        longitude + longitudeOffset,
-        latitude - latitudeOffset,
-      ].join(",");
-      const params = new URLSearchParams({
-        format: "jsonv2",
-        q: "supermarket",
-        viewbox,
-        bounded: "1",
-        countrycodes: "za",
-        limit: "40",
+      const radiusMeters = 5000;
+      const shopQuery = `[out:json][timeout:15];(node["shop"~"^(supermarket|convenience|grocery|greengrocer|department_store|variety_store|mall)$"](around:${radiusMeters},${latitude},${longitude});way["shop"~"^(supermarket|convenience|grocery|greengrocer|department_store|variety_store|mall)$"](around:${radiusMeters},${latitude},${longitude});relation["shop"~"^(supermarket|convenience|grocery|greengrocer|department_store|variety_store|mall)$"](around:${radiusMeters},${latitude},${longitude});node["amenity"="marketplace"](around:${radiusMeters},${latitude},${longitude});way["amenity"="marketplace"](around:${radiusMeters},${latitude},${longitude}););out center tags;`;
+      const response = await fetch("https://overpass-api.de/api/interpreter", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          "User-Agent": "SmartShopper/1.0 (nearby shopping planner)",
+        },
+        body: new URLSearchParams({ data: shopQuery }),
+        signal: AbortSignal.timeout(20000),
       });
-      params.set("extratags", "1");
-      const response = await fetchNominatim(
-        `https://nominatim.openstreetmap.org/search?${params}`
-      );
 
-      if (!response.ok) {
-        return res.status(502).json({ error: "Nearby store search is temporarily unavailable." });
+      type ShopElement = {
+        id: number;
+        type: string;
+        lat?: number;
+        lon?: number;
+        center?: { lat: number; lon: number };
+        tags?: Record<string, string>;
+      };
+      let elements: ShopElement[] = [];
+      if (response.ok) {
+        const data = (await response.json()) as { elements?: ShopElement[] };
+        elements = data.elements || [];
       }
 
-      const data = (await response.json()) as {
-        place_id: number;
-        name?: string;
-        display_name: string;
-        lat: string;
-        lon: string;
-        type?: string;
-        extratags?: { opening_hours?: string };
-      }[];
-      const stores = data
+      if (!elements.length) {
+        const latitudeOffset = 0.063;
+        const longitudeOffset = latitudeOffset / Math.max(0.2, Math.cos((latitude * Math.PI) / 180));
+        const viewbox = [
+          longitude - longitudeOffset,
+          latitude + latitudeOffset,
+          longitude + longitudeOffset,
+          latitude - latitudeOffset,
+        ].join(",");
+        const params = new URLSearchParams({
+          format: "jsonv2",
+          q: "supermarket",
+          viewbox,
+          bounded: "1",
+          countrycodes: "za",
+          limit: "40",
+          extratags: "1",
+        });
+        const fallbackResponse = await fetchNominatim(
+          `https://nominatim.openstreetmap.org/search?${params}`
+        );
+        if (!fallbackResponse.ok) {
+          return res.status(502).json({ error: "Nearby store search is temporarily unavailable." });
+        }
+
+        const fallbackPlaces = (await fallbackResponse.json()) as {
+          place_id: number;
+          name?: string;
+          display_name: string;
+          lat: string;
+          lon: string;
+          type?: string;
+          extratags?: { opening_hours?: string };
+        }[];
+        elements = fallbackPlaces.map((place) => ({
+          id: place.place_id,
+          type: "node",
+          lat: Number(place.lat),
+          lon: Number(place.lon),
+          tags: {
+            name: place.name || place.display_name.split(",")[0],
+            shop: place.type || "supermarket",
+            "addr:full": place.display_name,
+            opening_hours: place.extratags?.opening_hours,
+          },
+        }));
+      }
+
+      const stores = elements
         .map((place) => {
-          const storeLatitude = Number(place.lat);
-          const storeLongitude = Number(place.lon);
-          const name = place.name || place.display_name.split(",")[0];
+          const storeLatitude = place.lat ?? place.center?.lat;
+          const storeLongitude = place.lon ?? place.center?.lon;
+          const tags = place.tags || {};
+          const name = tags.name || tags.brand;
           if (!name || !Number.isFinite(storeLatitude) || !Number.isFinite(storeLongitude)) {
             return null;
           }
 
+          const address = tags["addr:full"] || [
+            [tags["addr:housenumber"], tags["addr:street"]].filter(Boolean).join(" "),
+            tags["addr:suburb"] || tags["addr:city"],
+          ].filter(Boolean).join(", ") || tags.shop || "Address not listed";
+
           return {
-            id: String(place.place_id),
+            id: `${place.type}-${place.id}`,
             name,
-            category: place.type || "supermarket",
-            address: place.display_name,
+            category: tags.shop || tags.amenity || "shop",
+            address,
             latitude: storeLatitude,
             longitude: storeLongitude,
             distanceKm: getDistanceKm(latitude, longitude, storeLatitude, storeLongitude),
-            openingHours: place.extratags?.opening_hours?.trim() || undefined,
+            openingHours: tags.opening_hours?.trim() || undefined,
           };
         })
         .filter((store): store is NonNullable<typeof store> => Boolean(store))
+        .filter((store, index, all) => all.findIndex((candidate) => candidate.name === store.name && candidate.latitude === store.latitude && candidate.longitude === store.longitude) === index)
         .sort((a, b) => a.distanceKm - b.distanceKm)
-        .slice(0, 40);
+        .slice(0, 80);
 
       return res.json({ stores });
     } catch (error) {

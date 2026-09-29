@@ -16,6 +16,9 @@ import { ProductImage } from './ProductImage';
 import { formatPrice, searchProducts } from '../data/mockData';
 import { searchRealtimePrices } from '../services/geminiService';
 
+const INITIAL_VISIBLE_GROUPS = 24;
+const VISIBLE_GROUPS_INCREMENT = 24;
+
 interface SearchScreenProps {
   currency: Currency;
   remainingBudgetZar: number;
@@ -40,6 +43,7 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({
   onAddToShoppingList,
 }) => {
   const [query, setQuery] = useState(initialQuery);
+  const [visibleGroupCount, setVisibleGroupCount] = useState(INITIAL_VISIBLE_GROUPS);
 
   const [minPrice, setMinPrice] = useState<number | ''>('');
 
@@ -69,6 +73,10 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({
     setQuery(initialQuery);
     setMaxPrice(initialMaxBudget ?? '');
   }, [initialQuery, initialMaxBudget]);
+
+  useEffect(() => {
+    setVisibleGroupCount(INITIAL_VISIBLE_GROUPS);
+  }, [query, selectedCategories, selectedStores, minPrice, maxPrice, sortBy]);
 
   // =========================================================
   // AVAILABLE STORES
@@ -419,6 +427,7 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({
       ),
     }));
   }, [filteredProducts]);
+  const visibleComparisonGroups = comparisonGroups.slice(0, visibleGroupCount);
 
   // =========================================================
   // DISPLAY
@@ -439,6 +448,7 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({
           <input
             type="text"
             id="deals-search-input"
+            autoFocus
             value={query}
             onChange={(e) =>
               setQuery(e.target.value)
@@ -860,7 +870,7 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({
               {/* =================================================
                   PRODUCT COMPARISON GROUPS
                   ================================================= */}
-              {comparisonGroups.map(
+              {visibleComparisonGroups.map(
                 (group) => {
                   const cheapestProduct =
                     group.items[0];
@@ -1184,6 +1194,21 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({
                     </div>
                   );
                 }
+              )}
+
+              {comparisonGroups.length > visibleComparisonGroups.length && (
+                <div className="flex justify-center">
+                  <button
+                    type="button"
+                    onClick={() => setVisibleGroupCount((count) => Math.min(
+                      count + VISIBLE_GROUPS_INCREMENT,
+                      comparisonGroups.length
+                    ))}
+                    className="border border-gray-200 bg-white px-5 py-2.5 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+                  >
+                    Show more deals ({visibleComparisonGroups.length} of {comparisonGroups.length})
+                  </button>
+                </div>
               )}
             </div>
           )}
