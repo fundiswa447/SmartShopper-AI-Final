@@ -1,0 +1,6 @@
+{
+  "name": "SmartShopper AI",
+  "description": "SmartShopper AI - Student budgeting and real-time price comparison across South African retail stores like Checkers, Pick n Pay, Woolworths, Shoprite, SPAR, and Takealot.",
+  "requestFramePermissions": ["geolocation"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
